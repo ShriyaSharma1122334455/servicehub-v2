@@ -1,0 +1,41 @@
+name: servicehub
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: servicehub-postgres
+    environment:
+      POSTGRES_USER: servicehub
+      POSTGRES_PASSWORD: servicehub_dev_password
+      POSTGRES_DB: servicehub_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./backend/db:/db:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servicehub -d servicehub_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  backend:
+    build:
+      context: ./backend
+      target: development
+    container_name: servicehub-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://servicehub:servicehub_dev_password@postgres:5432/servicehub_dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

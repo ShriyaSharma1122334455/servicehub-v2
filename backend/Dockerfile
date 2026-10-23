@@ -1,54 +1,30 @@
-# ServiceHub Backend — Multi-stage Dockerfile
-# ─────────────────────────────────────────────
-# Stage 1: development  → hot reload with nodemon, source mounted as volume
-# Stage 2: production   → minimal image, no devDeps, runs compiled/started node
-#
-# Local dev:
-#   docker build --target development -t servicehub-backend:dev .
-#   docker run -p 3000:3000 --env-file .env servicehub-backend:dev
-#
-# Production:
-#   docker build --target production -t servicehub-backend:prod .
+# syntax=docker/dockerfile:1
 
-# ── Base (shared Node version) ─────────────────────────────────────────────
-FROM node:20-alpine AS base
+# ── base: shared by every stage ─────────────────────────────────────────────
+FROM node:24-alpine AS base
 WORKDIR /app
-COPY package*.json ./
+COPY package.json package-lock.json ./
 
-# ── Development stage ──────────────────────────────────────────────────────
+# ── development: all dependencies, hot reload ───────────────────────────────
 FROM base AS development
-# Install ALL deps (including devDependencies like nodemon)
 RUN npm ci
 COPY . .
 EXPOSE 3000
-# Use nodemon for hot reload in development
-CMD ["node_modules/.bin/nodemon", "src/server.js"]
+CMD ["npx", "nodemon", "--legacy-watch", "src/server.js"]
 
-# ── Production build stage ─────────────────────────────────────────────────
-FROM base AS production-deps
-# Install only production dependencies
-RUN npm ci --only=production
+# ── production dependencies only ────────────────────────────────────────────
+FROM base AS prod-deps
+RUN npm ci --omit=dev
 
-FROM node:20-alpine AS production
+# ── production: small image, non-root user ──────────────────────────────────
+FROM node:24-alpine AS production
+ENV NODE_ENV=production
 WORKDIR /app
-
-# Security: run as non-root user
-RUN addgroup -S servicehub && adduser -S servicehub -G servicehub
-
-# Copy only production deps and source
-COPY --from=production-deps /app/node_modules ./node_modules
-COPY . .
-
-# Remove dev files from production image
-RUN rm -f .env.example && rm -rf src/scripts
-
-# Switch to non-root user
-USER servicehub
-
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node package.json ./
+COPY --chown=node:node src ./src
+USER node
 EXPOSE 3000
-
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
-
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["node", "src/server.js"]
