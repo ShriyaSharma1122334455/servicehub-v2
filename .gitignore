@@ -27,3 +27,5 @@ Thumbs.db
 # Google Cloud credentials
 *.json
 Cld_Vis_API/
+# ...but keep k6 load-test results (metrics only, no secrets)
+!loadtest/results/*.json
