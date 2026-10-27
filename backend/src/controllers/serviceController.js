@@ -1,5 +1,34 @@
 import supabase from '../config/supabase.js';
+import { query } from '../config/database.js';
 import { getInternalUser, profileNotFoundResponse } from '../utils/internalUser.js';
+import { parsePagination, escapeLike } from '../utils/pagination.js';
+
+// ── Catalog reads (PostgreSQL) ────────────────────────────────────────────
+// Each catalog service is returned with its category and a summary of the
+// active offers for it: how many providers offer it and their price range.
+// Prices are integer cents; starting_price is the same value in dollars.
+const SERVICE_SELECT = `
+  SELECT s.id, s.slug, s.name, s.description, s.default_duration_minutes, s.price_unit,
+         json_build_object('id', c.id, 'slug', c.slug, 'name', c.name) AS category,
+         coalesce(o.provider_count, 0)  AS provider_count,
+         o.min_price_cents,
+         o.max_price_cents,
+         o.min_price_cents / 100.0::float8 AS starting_price
+    FROM services s
+    JOIN categories c ON c.id = s.category_id
+    LEFT JOIN LATERAL (
+      SELECT count(*)            AS provider_count,
+             min(ps.price_cents) AS min_price_cents,
+             max(ps.price_cents) AS max_price_cents
+        FROM provider_services ps
+        JOIN providers p ON p.user_id = ps.provider_id AND p.is_active
+       WHERE ps.service_id = s.id AND ps.is_active
+    ) o ON true`;
+
+const dollarsToCents = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
 
 // ── Shared ownership helper ───────────────────────────────────────────────
 
@@ -39,62 +68,52 @@ async function getCallerProviderProfile(supabaseUserId, res) {
 
 // listServices
 
+// GET /api/services?category=&search=&minPrice=&maxPrice=&page=&limit=
+//   category: category ID (1) or slug (plumbing); prices in dollars.
 export const listServices = async (req, res) => {
   try {
-    const { category, minPrice, maxPrice, search, page = 1, limit = 20 } = req.query;
+    const { category, search, minPrice, maxPrice } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
 
-    let query = supabase
-      .from('services')
-      .select(
-        `*, category:categories(name, slug), provider:providers(id, business_name, rating_avg, rating_count)`,
-        { count: 'exact' },
-      )
-      .eq('is_active', true)
-      .order('name', { ascending: true });
+    const categoryId   = /^\d+$/.test(category ?? '') ? Number(category) : null;
+    const categorySlug = category && categoryId === null ? String(category) : null;
+    const searchText   = search ? `%${escapeLike(String(search).trim())}%` : null;
 
-    if (category)  query = query.eq('category_id', category);
-    if (search)    query = query.ilike('name', `%${search}%`);
-    if (minPrice)  query = query.gte('base_price', Number(minPrice));
-    if (maxPrice)  query = query.lte('base_price', Number(maxPrice));
+    const { rows } = await query(
+      `${SERVICE_SELECT}
+        WHERE s.is_active
+          AND ($1::smallint IS NULL OR s.category_id = $1)
+          AND ($2::text     IS NULL OR c.slug = $2)
+          AND ($3::text     IS NULL OR s.name ILIKE $3)
+          AND ($4::int      IS NULL OR o.min_price_cents >= $4)
+          AND ($5::int      IS NULL OR o.min_price_cents <= $5)
+        ORDER BY c.id, s.sort_order, s.name
+        LIMIT $6 OFFSET $7`,
+      [categoryId, categorySlug, searchText,
+       dollarsToCents(minPrice), dollarsToCents(maxPrice), limit, offset],
+    );
 
-    const from = (Number(page) - 1) * Number(limit);
-    const to   = from + Number(limit) - 1;
-    query = query.range(from, to);
-
-    const { data: services, error, count } = await query;
-
-    if (error) return res.status(400).json({ success: false, error: error.message });
-
-    return res.json({
-      success: true,
-      count: services.length,
-      total: count,
-      page: Number(page),
-      data: services,
-    });
-
+    return res.json({ success: true, count: rows.length, page, limit, data: rows });
   } catch (err) {
     console.error('listServices error:', err);
     res.status(500).json({ success: false, error: 'Failed to list services' });
   }
 };
 
-// getService
-
+// GET /api/services/:id   (catalog IDs are small integers, e.g. 102)
 export const getService = async (req, res) => {
   try {
-    const { data: service, error } = await supabase
-      .from('services')
-      .select(`*, category:categories(name, slug)`)
-      .eq('id', req.params.id)
-      .single();
-
-    if (error || !service) {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1 || id > 32767) {
       return res.status(404).json({ success: false, error: 'Service not found' });
     }
 
-    res.json({ success: true, data: service });
+    const { rows } = await query(`${SERVICE_SELECT} WHERE s.id = $1`, [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Service not found' });
+    }
 
+    res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error('getService error:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch service' });

@@ -38,5 +38,54 @@ services:
       postgres:
         condition: service_healthy
 
+  # ── Load testing (only with --profile loadtest) ─────────────────────────────
+  # Several copies of the production backend behind an nginx load balancer,
+  # plus k6 to generate traffic. See loadtest/README.md.
+
+  api:
+    profiles: ["loadtest"]
+    build:
+      context: ./backend
+      target: production
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://servicehub:servicehub_dev_password@postgres:5432/servicehub_dev
+      DB_POOL_MAX: 10
+      # The browse test never calls the damage-assessment service; blank means
+      # "not configured", so production startup checks skip it.
+      VDA_SERVICE_URL: ""
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"     # one core per instance, so 1 vs 3 instances is a fair comparison
+          memory: 512M
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  lb:
+    profiles: ["loadtest"]
+    image: nginx:1.28.0-alpine
+    container_name: servicehub-lb
+    ports:
+      - "8080:80"
+    volumes:
+      - ./loadtest/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+
+  k6:
+    profiles: ["loadtest"]
+    image: grafana/k6:1.0.0
+    volumes:
+      - ./loadtest:/scripts
+    environment:
+      BASE_URL: http://lb
+    depends_on:
+      - lb
+
 volumes:
   pgdata:
