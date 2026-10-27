@@ -6,7 +6,6 @@
 -- Design notes: backend/docs/schema-design.md
 -- =============================================================================
 
-BEGIN;
 
 CREATE TYPE auth_token_purpose AS ENUM ('email_verification', 'password_reset');
 CREATE TYPE payment_status     AS ENUM ('requires_payment', 'authorized', 'captured', 'cancelled',
@@ -196,4 +195,3 @@ CREATE TABLE outbox (
 --   ORDER BY available_at LIMIT 50 FOR UPDATE SKIP LOCKED;
 CREATE INDEX outbox_due_idx ON outbox (available_at) WHERE status = 'pending';
 
-COMMIT;

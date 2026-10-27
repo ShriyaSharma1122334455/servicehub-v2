@@ -17,22 +17,38 @@ are in [`../docs/schema-design.md`](../docs/schema-design.md).
 | `seeds/dev_seed.sql` | Sample marketplace data for local development (**never production**) |
 | `tests/0001_core_schema.test.sql` | Constraint tests for 0001–0002 (tests for 0003–0005 still to write) |
 
-Migrations run **in number order**, and each one is a single transaction: it either
-applies completely or not at all. Never edit a migration that has already been applied
-somewhere; add a new numbered file instead.
+Migrations run **in number order**. The runner wraps each file in its own transaction,
+so a file either applies completely or not at all; that's why the files themselves
+contain no `BEGIN` / `COMMIT`. Applied files are recorded in the `schema_migrations`
+table with a checksum. Never edit a migration that has already been applied somewhere;
+add a new numbered file instead (the runner refuses to continue if an applied file changed).
 
-## Running it (once a database is available)
+## Running it
 
-Create an empty database, then apply the migrations, the seed and the tests in order:
+With the database running (`docker compose up -d postgres` from the project root),
+from the `backend` folder:
+
+| Command | What it does |
+|---|---|
+| `npm run db:migrate` | Applies any migrations not applied yet |
+| `npm run db:seed` | Loads `seeds/dev_seed.sql` (dev only) |
+| `npm run db:reset` | Wipes the database, re-runs every migration, then loads the seed (dev only) |
+
+The same commands work inside the backend container, e.g.
+`docker compose exec backend npm run db:reset`.
+
+Running a migration by hand with `psql` instead, use `-1` (one transaction) and
+`ON_ERROR_STOP=1` (stop at the first error):
 
 ```bash
-createdb servicehub_dev
-for f in migrations/*.sql; do psql -v ON_ERROR_STOP=1 -d servicehub_dev -f "$f"; done
-psql -v ON_ERROR_STOP=1 -d servicehub_dev -f seeds/dev_seed.sql
-psql -v ON_ERROR_STOP=1 -d servicehub_dev -f tests/0001_core_schema.test.sql
+psql -1 -v ON_ERROR_STOP=1 -d servicehub_dev -f migrations/0001_core_schema.sql
 ```
 
-`ON_ERROR_STOP=1` makes `psql` stop at the first error instead of carrying on.
+The SQL constraint tests roll themselves back, so they can run any time:
+
+```bash
+psql -v ON_ERROR_STOP=1 -d servicehub_dev -f tests/0001_core_schema.test.sql
+```
 
 ## Conventions
 

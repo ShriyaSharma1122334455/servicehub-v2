@@ -90,6 +90,16 @@ jest.unstable_mockModule('../config/supabase.js', () => ({
   checkSupabaseConnection: jest.fn(),
 }));
 
+// Health checks hit PostgreSQL; these tests don't need a real database.
+const mockCheckDatabaseConnection = jest.fn().mockResolvedValue({ ok: true, version: 'test', latencyMs: 0 });
+jest.unstable_mockModule('../config/database.js', () => ({
+  checkDatabaseConnection: mockCheckDatabaseConnection,
+  closePool: jest.fn(),
+  query: jest.fn(),
+  withTransaction: jest.fn(),
+  getPool: jest.fn(),
+}));
+
 // ── NOW import the app (after mocks are in place) ─────────────────────────
 const { default: app } = await import('../server.js');
 import request from 'supertest';
@@ -109,6 +119,15 @@ describe('Health', () => {
     const res = await request(app).get('/api/health');
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty('status', 'healthy');
+    expect(res.body).toHaveProperty('database', 'up');
+  });
+
+  it('GET /api/health returns 503 when the database is down', async () => {
+    mockCheckDatabaseConnection.mockResolvedValueOnce({ ok: false, error: 'connection refused', latencyMs: 5 });
+    const res = await request(app).get('/api/health');
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toHaveProperty('status', 'unhealthy');
+    expect(res.body).toHaveProperty('database', 'down');
   });
 });
 

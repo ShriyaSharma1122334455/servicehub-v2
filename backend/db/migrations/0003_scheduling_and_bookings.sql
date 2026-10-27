@@ -5,7 +5,6 @@
 -- Design notes: backend/docs/schema-design.md
 -- =============================================================================
 
-BEGIN;
 
 -- btree_gist lets an exclusion constraint combine "same provider" (=) with
 -- "overlapping time" (&&) in one index.
@@ -269,4 +268,3 @@ CREATE TRIGGER bookings_log_status
   AFTER INSERT OR UPDATE OF status ON bookings
   FOR EACH ROW EXECUTE FUNCTION bookings_log_status();
 
-COMMIT;

@@ -4,7 +4,6 @@
 -- Design notes: backend/docs/schema-design.md
 -- =============================================================================
 
-BEGIN;
 
 -- ── Extensions ───────────────────────────────────────────────────────────────
 -- citext: case-insensitive text, so 'Shriya@Gmail.com' = 'shriya@gmail.com'
@@ -232,4 +231,3 @@ CREATE TRIGGER provider_services_set_updated_at
   BEFORE UPDATE ON provider_services
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-COMMIT;
