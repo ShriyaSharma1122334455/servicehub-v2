@@ -287,15 +287,7 @@ describe('Auth – /api/auth', () => {
 });
 
 // ─── 3. Categories ────────────────────────────────────────────────────────
-describe('Categories – /api/categories', () => {
-  it('GET / returns array of categories', async () => {
-    mockFromResult = { data: [], error: null };
-
-    const res = await request(app).get('/api/categories');
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-  });
-});
+// Now served from PostgreSQL — covered in catalogRoutes.test.js.
 
 // ─── 4. Providers ─────────────────────────────────────────────────────────
 describe('Providers – /api/providers', () => {

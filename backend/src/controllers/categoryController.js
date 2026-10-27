@@ -1,43 +1,32 @@
-import supabase from '../config/supabase.js';
+import { query } from '../config/database.js';
+
+const CATEGORY_COLUMNS = 'id, slug, name, icon, description';
 
 // Get all categories
-export const getAllCategories = async (req, res) => {
+export const getAllCategories = async (_req, res) => {
   try {
-    const { data: categories, error } = await supabase
-      .from('categories')
-      .select('id, name, slug')
-      .eq('is_active', true)
-      .order('name', { ascending: true });
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ success: true, data: categories ?? [] });
-
+    const { rows } = await query(`SELECT ${CATEGORY_COLUMNS} FROM categories ORDER BY name`);
+    res.json({ success: true, data: rows });
   } catch (err) {
     console.error('Error fetching categories:', err);
-    res.status(500).json({ error: 'Failed to fetch categories' });
+    res.status(500).json({ success: false, error: 'Failed to fetch categories' });
   }
 };
 
-// Get category by ID
+// Get category by ID (IDs are small hand-assigned integers: 1 = plumbing, ...)
 export const getCategoryById = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const { data: category, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !category) {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1 || id > 32767) {
       return res.status(404).json({ success: false, error: 'Category not found' });
     }
 
-    res.json({ success: true, data: category });
+    const { rows } = await query(`SELECT ${CATEGORY_COLUMNS} FROM categories WHERE id = $1`, [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
 
+    res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error('Error fetching category:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch category' });
@@ -47,21 +36,15 @@ export const getCategoryById = async (req, res) => {
 // Get category by slug
 export const getCategoryBySlug = async (req, res) => {
   try {
-    const { slug } = req.params;
-
-    const { data: category, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('slug', slug)
-      .eq('is_active', true)
-      .single();
-
-    if (error || !category) {
+    const { rows } = await query(
+      `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE slug = $1`,
+      [req.params.slug],
+    );
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Category not found' });
     }
 
-    res.json({ success: true, data: category });
-
+    res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error('Error fetching category:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch category' });

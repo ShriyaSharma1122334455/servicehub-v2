@@ -1,4 +1,6 @@
 import supabase from '../config/supabase.js';
+import { query } from '../config/database.js';
+import { parsePagination } from '../utils/pagination.js';
 
 export const getProvider = async (req, res) => {
   try {
@@ -77,41 +79,43 @@ export const listProviders = async (req, res) => {
   }
 };
 
+// GET /api/providers/by-service/:serviceId?page=&limit=
+// Active providers offering a catalog service, cheapest first. The ORDER BY
+// matches the provider_services (service_id, price_cents) index, so Postgres
+// reads offers already sorted instead of sorting them.
 export const getProvidersByService = async (req, res) => {
   try {
-    const { serviceId } = req.params;
+    const serviceId = Number(req.params.serviceId);
+    if (!Number.isInteger(serviceId) || serviceId < 1 || serviceId > 32767) {
+      return res.status(400).json({ success: false, error: 'serviceId must be a catalog service ID' });
+    }
+    const { page, limit, offset } = parsePagination(req.query);
 
-    // Find providers who offer this service via provider_services table
-    const { data, error } = await supabase
-      .from('provider_services')
-      .select(`
-        custom_price, custom_description,
-        provider:providers(
-          id, business_name, rating_avg, rating_count, is_active, is_fully_verified,
-          user:users(full_name, avatar_url)
-        )
-      `)
-      .eq('service_id', serviceId)
-      .eq('is_active', true);
+    const { rows } = await query(
+      `SELECT p.user_id AS id,
+              p.business_name,
+              p.rating_count,
+              CASE WHEN p.rating_count > 0
+                   THEN round(p.rating_sum::numeric / p.rating_count, 2)::float8
+              END                                     AS rating_avg,
+              (u.verification_status = 'verified')    AS is_fully_verified,
+              u.full_name,
+              u.avatar_url,
+              ps.id                                   AS offer_id,
+              ps.price_cents,
+              ps.price_cents / 100.0::float8          AS custom_price,
+              ps.duration_minutes,
+              ps.description                          AS custom_description
+         FROM provider_services ps
+         JOIN providers p ON p.user_id = ps.provider_id AND p.is_active
+         JOIN users u     ON u.id = p.user_id AND u.deleted_at IS NULL
+        WHERE ps.service_id = $1 AND ps.is_active
+        ORDER BY ps.price_cents, p.rating_count DESC, p.user_id
+        LIMIT $2 OFFSET $3`,
+      [serviceId, limit, offset],
+    );
 
-    if (error) return res.status(400).json({ success: false, error: error.message });
-
-    // Filter active providers
-    const list = data
-      .filter(row => row.provider?.is_active)
-      .map(row => ({
-        id:                    row.provider.id,
-        business_name:         row.provider.business_name,
-        rating_avg:            row.provider.rating_avg,
-        rating_count:          row.provider.rating_count,
-        is_fully_verified:     row.provider.is_fully_verified ?? false,
-        full_name:             row.provider.user?.full_name || null,
-        avatar_url:            row.provider.user?.avatar_url || null,
-        custom_price:          row.custom_price ?? null,
-        custom_description:    row.custom_description ?? null,
-      }));
-
-    return res.json({ success: true, count: list.length, data: list });
+    return res.json({ success: true, count: rows.length, page, limit, data: rows });
 
   } catch (err) {
     console.error('getProvidersByService error:', err);

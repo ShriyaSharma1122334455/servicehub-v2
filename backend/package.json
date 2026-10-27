@@ -19,6 +19,7 @@
     "seed:all": "npm run seed:categories && npm run seed:users && npm run seed:providers",
     "db:migrate": "node src/scripts/migrate.js",
     "db:seed": "node src/scripts/seedDev.js",
+    "db:seed:loadtest": "node src/scripts/seedDev.js loadtest_seed.sql",
     "db:reset": "node src/scripts/resetDb.js",
     "lint": "eslint src"
   },
