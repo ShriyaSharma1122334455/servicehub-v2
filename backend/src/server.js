@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import { checkSupabaseConnection } from './config/supabase.js';
+import { checkDatabaseConnection, closePool } from './config/database.js';
 import { validateVdaServiceConfig, validateVdaAuthConfig } from './config/vdaServiceConfig.js';
 import { startReminderCron } from './services/reminderService.js';
 import { startAutoCompleteCron } from './services/autoCompleteService.js';
@@ -30,7 +30,10 @@ dotenv.config();
 const app = express();
 
 if (process.env.NODE_ENV !== 'test') {
-  checkSupabaseConnection();
+  checkDatabaseConnection().then((db) => {
+    if (db.ok) console.log(`✅ PostgreSQL ${db.version} connected (${db.latencyMs} ms)`);
+    else       console.error('❌ PostgreSQL connection failed:', db.error);
+  });
   validateVdaServiceConfig();
   validateVdaAuthConfig();
   startReminderCron();
@@ -110,8 +113,15 @@ app.get('/', (_req, res) => {
   res.json({ message: 'Welcome to ServiceHub API', version: '1.0.0', status: 'running' });
 });
 
-app.get('/api/health', (_req, res) => {
-  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+// Reports 503 when the database is unreachable, so Docker and load balancers
+// stop sending traffic to this instance.
+app.get('/api/health', async (_req, res) => {
+  const db = await checkDatabaseConnection();
+  res.status(db.ok ? 200 : 503).json({
+    status:    db.ok ? 'healthy' : 'unhealthy',
+    database:  db.ok ? 'up' : 'down',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // ── Global error handler ──────────────────────────────────────────────────
@@ -127,8 +137,21 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────
+// `docker compose stop` sends SIGTERM: finish in-flight requests, close the
+// database pool, then exit.
+const shutdown = (signal) => {
+  console.log(`${signal} received — shutting down`);
+  server.close(async () => {
+    await closePool();
+    process.exit(0);
+  });
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
 
 export default app;

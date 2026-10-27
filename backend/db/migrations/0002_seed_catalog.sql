@@ -5,7 +5,6 @@
 -- Service ID convention: category_id * 100 + n  (Plumbing = 1 → 101, 102, ...)
 -- =============================================================================
 
-BEGIN;
 
 INSERT INTO categories (id, slug, name, icon, description) VALUES
   (1, 'plumbing',     'Plumbing',     'plumbing',     'Leaks, drains, pipes and water heaters'),
@@ -33,4 +32,3 @@ INSERT INTO services (id, category_id, slug, name, description, default_duration
   (402, 4, 'rodent-control',         'Rodent control',         'Trapping, removal and entry-point sealing',          90,  'fixed',  2),
   (403, 4, 'preventive-treatment',   'Preventive treatment',   'Recurring perimeter treatment to keep pests out',    60,  'fixed',  3);
 
-COMMIT;

@@ -8,6 +8,5 @@ coverage
 .gitignore
 Dockerfile
 .dockerignore
-db
 docs
 *.md

@@ -4,7 +4,6 @@
 -- Design notes: backend/docs/schema-design.md
 -- =============================================================================
 
-BEGIN;
 
 CREATE TYPE complaint_type     AS ENUM ('complaint', 'incident', 'feedback');
 CREATE TYPE complaint_priority AS ENUM ('low', 'medium', 'high', 'urgent');
@@ -265,4 +264,3 @@ CREATE TRIGGER verifications_sync_user_status
   AFTER INSERT OR UPDATE OF status ON verifications
   FOR EACH ROW EXECUTE FUNCTION verifications_sync_user_status();
 
-COMMIT;
